@@ -6,10 +6,11 @@ typedef std::initializer_list<ld> ls;
 
 namespace ode 
 {
+
 template<typename function>
 //显示欧拉
 ld explicit_Euler(function func,ls x,ld y0,long n=1000)//函数,区间,初值,迭代次数
-{
+{//error: O(h^2)
 ld beg=*x.begin(),ed=*(x.begin()+1);
 ld h=(ed-beg)/n;//步长
 for(long i=0;i<n;++i)
@@ -21,7 +22,7 @@ return y0;
 }
 
 template<typename function>
-//隐式欧拉
+//(半)隐式欧拉
 ld implicit_Euler(function func,ls x,ld y0,long n=1000)//函数,区间,初值,迭代次数
 {
 ld beg=*x.begin(),ed=*(x.begin()+1);	
@@ -31,15 +32,37 @@ for(long i=0;i<n;++i)
 return y0;
 }
 
+template<typename function,typename Diff>
+//隐式欧拉方法更擅长求解刚性(stiff)问题,可以减少震荡
+//一般过程是每一步用牛顿法求解y_{n+1}
+ld implicit_Euler(function func,Diff diff,ls x,ld y0,ld tol=1e-3,long n=1000)//函数,导数,区间,初值,迭代次数
+{
+ld beg=*x.begin(),ed=*(x.begin()+1);	
+ld h=(ed-beg)/n,y1,y2;//步长
+for(long i=0;i<n;++i)
+{
+	beg+=h;
+	y1=y0+1,y2=y0;
+	while(fabs(y1-y0)>tol)
+	{
+		y2=y1-(y1-h*func(beg,y1)-y0)/(1-h*diff(beg,y1));
+		y1=y2;
+	}
+	y0=y1;
+}
+return y0;
+}
+
 template<typename function>
 //改进欧拉(显示梯形)
 ld Heun(function func,ls x,ld y0,long n=1000)//函数,区间,初值,迭代次数
 {
 ld beg=*x.begin(),ed=*(x.begin()+1);
-ld h=(ed-beg)/n;//步长
+ld h=(ed-beg)/n,fy;//步长
 for(long i=0;i<n;++i)
 {
-	y0+=h*(func(beg,y0)+func(beg+h,y0+h*func(beg,y0)))/2;//增值
+	fy=func(beg,y0);
+	y0+=h*(fy+func(beg+h,y0+h*fy))/2;//增值,其中f(t_{n+1},y_{n+1})的y_{n+1}用一阶近似代替
 	beg+=h;//x增加
 }
 return y0;
@@ -61,12 +84,17 @@ return y0;
 
 template<typename function>
 //Runge-Kutta
-ld RK4(function func,ls x,ld y0,long n=1000)//函数,区间,初值,迭代次数
+//使用若干个函数点做泰勒展开的近似公式,达到一定的阶数(每一个点的斜率由前一个点的导数值做线性预测)
+ld RK4(function func,ls x,ld y0,std::string str="classic",long n=1000)//函数,区间,初值,method,迭代次数
 {
 ld beg=*x.begin(),ed=*(x.begin()+1);
 ld h=(ed-beg)/n,s1,s2,s3,s4;
+switch(str[0])
+{
+case 'c':
+case 'C':
 	for(long i=0;i<n;++i)
-	{
+	{//古典RK
 	s1=func(beg,y0);
 	s2=func(beg+h/2,y0+h/2*s1);
 	s3=func(beg+h/2,y0+h/2*s2);
@@ -74,6 +102,35 @@ ld h=(ed-beg)/n,s1,s2,s3,s4;
 	y0+=h*(s1+2*s2+2*s3+s4)/6;
 	beg+=h;
 	}
+	break;
+case 'k':
+case 'K':
+	for(long i=0;i<n;++i)
+	{//Kutta方法
+	s1=func(beg,y0);
+	s2=func(beg+h/3,y0+h/3*s1);
+	s3=func(beg+h*2/3,y0-h*s1/3+h*s2);
+	s4=func(beg+h,y0+h*(s1-s2+s3));
+	y0+=h*(s1+3*s2+3*s3+s4)/8;
+	beg+=h;
+	}
+	break;
+case 'g':
+case 'G':
+	for(long i=0;i<n;++i)
+	{//Gill方法
+	s1=func(beg,y0);
+	s2=func(beg+h/2,y0+h/2*s1);
+	s3=func(beg+h/2,y0+h*s1*(sqrt(2)-1)/2.+h*s2*(2-sqrt(2))/2.);
+	s4=func(beg+h,y0-h*s2*sqrt(2)/2.+h*s3*(2+sqrt(2))/2.);
+	y0+=h*(s1+(2-sqrt(2))*s2+(2+sqrt(2))*s3+s4)/6;
+	beg+=h;
+	}
+	break;
+default :
+	std::cerr<<"\nRK4: error method.\n";
+	exit(0);
+}
 return y0;
 }
 
@@ -118,5 +175,81 @@ bool flag=0;
 	else h/=2.,n=0;//重复失败,减半处理
 	}
 return y0;
+}
+
+template<typename function>
+//Adams多步方法选取之前计算的多个点进行拉格朗日插值,用外插值的积分预测下一个点
+//同理,隐式方法采用内插值
+//Adams4步方法
+ld Adams4(function func,ls x,ld y0,long n=1000)
+{
+	ld beg=*x.begin(),ed=*(x.begin()+1);
+	ld h=(ed-beg)/n,s1,s2,s3,s4,s[5];
+	long i=0;
+	s[0]=y0;
+	for(;i<4;++i)
+	{//先用RK4得到Adams前四个值
+		s1=func(beg,y0);
+		s2=func(beg+h/2,y0+h/2*s1);
+		s3=func(beg+h/2,y0+h/2*s2);
+		s4=func(beg+h,y0+h*s3);
+		s[i+1]=s[i]+h*(s1+2*s2+2*s3+s4)/6;
+		beg+=h;
+	}
+	y0=s[4];
+	for(;i<n;++i)
+	{
+		y0+=h*(55*func(beg,s[4])-59*func(beg-h,s[3])+37*func(beg-2*h,s[2])-9*func(beg-3*h,s[1]))/24.;
+		s[1]=s[2];
+		s[2]=s[3];
+		s[3]=s[4];
+		s[4]=y0;
+		beg+=h;
+	}
+	return y0;
+}
+
+template<typename function>
+//改进的Adams算法(内插加外插误差相消)
+ld Adams_ipv(function func,ls x,ld y0,long n=1000)
+{
+	ld beg=*x.begin(),ed=*(x.begin()+1);
+	ld h=(ed-beg)/n,s1,s2,s3,s4,s[5];
+	long i=0;
+	s[0]=y0;
+	for(;i<4;++i)
+	{//先用RK4得到Adams前四个值
+		s1=func(beg,y0);
+		s2=func(beg+h/2,y0+h/2*s1);
+		s3=func(beg+h/2,y0+h/2*s2);
+		s4=func(beg+h,y0+h*s3);
+		s[i+1]=s[i]+h*(s1+2*s2+2*s3+s4)/6;
+		beg+=h;
+	}
+	y0=s[4];
+	ld p2,p1=0,c2,c1=0,m;
+	for(;i<n;++i)
+	{
+		s1=func(beg,s[4]);
+		s2=func(beg-h,s[3]);
+		s3=func(beg-2*h,s[2]);
+		s4=func(beg-3*h,s[1]);
+		p2=y0+h*(55*s1-59*s2+37*s3-9*s4)/24.;//未改进结果
+		//m=p2;
+		m=p2+(c1-p1)*251./270.;//修正的预估值(误差相消)
+		m=func(beg+h,m);
+		c2=y0+h*(9*m+19*s1-5*s2+s3)/24.;//修正的矫正值
+		//y0=c2;
+		y0=c2-(c2-p2)*19./270.;
+		//更新参数
+		c1=c2;
+		p1=p2;
+		s[1]=s[2];
+		s[2]=s[3];
+		s[3]=s[4];
+		s[4]=y0;
+		beg+=h;
+	}
+	return y0;
 }
 }
