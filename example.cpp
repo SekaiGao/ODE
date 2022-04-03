@@ -26,6 +26,10 @@ int main()
 	cout<<ode::RK4(func,{0,5},1)<<endl;
 
 	cout<<ode::RKF45(func,{0,5},1,1e-16)<<endl;
-
+	
+	cout<<ode::Adams4(func,{0,5},1,1e-16)<<endl;
+	
+	cout<<ode::Adams_ipv(func,{0,5},1,1e-16)<<endl;
+	
 	return 0;
 }
