@@ -1,5 +1,6 @@
 #pragma once
 #include<cmath>
+#include<vector>
 #include<initializer_list>
 typedef long double ld;
 typedef std::initializer_list<ld> ls;
@@ -251,5 +252,67 @@ ld Adams_ipv(function func,ls x,ld y0,long n=1000)
 		beg+=h;
 	}
 	return y0;
+}
+	
+template<typename function>
+//打靶法
+std::vector<ld>shoot(function func,ls x,ls yx,ls s={-10,10},ld T=1e-3,long n=1000)
+{
+ld beg=*x.begin(),ed=*(x.begin()+1);
+ld y0=*yx.begin(),yn=*(yx.begin()+1);
+ld sp1=*s.begin(),sp2=*(s.begin()+1);
+ld h=(ed-beg)/n,z,z1,z2,s1,s2,s3,s4,l1,l2,l3,l4,tem,t,sp0;//步长
+std::vector<ld>y(n+1),y1(n+1);
+auto pre=[&](ld sp)->ld
+{
+t=beg;
+y[0]=y0;
+y1[0]=sp;
+for(long i=0;i<n;++i)
+{//RK4
+	tem=y1[i];
+	s1=func(t,y[i],tem);
+	l1=tem;
+	tem=y1[i]+h/2*l1;
+	s2=func(t+h/2,y[i]+h/2*s1,tem);
+	l2=tem;
+	tem=y1[i]+h/2*l2;
+	s3=func(t+h/2,y[i]+h/2*s2,tem);
+	l3=tem;
+	tem=y1[i]+h*l3;
+	s4=func(t+h,y[i]+h*s3,tem);
+	l4=tem;
+	y1[i+1]=y1[i]+h*(s1+2*s2+2*s3+s4)/6;
+	y[i+1]=y[i]+h*(l1+2*l2+2*l3+l4)/6;
+	t+=h;//x增加	
+}
+return y[n]-yn;
+};
+
+while(true)//割线法求零点
+{
+z1=pre(sp1);
+z2=pre(sp2);
+sp0=sp1-z1*(sp1-sp2)/(z1-z2);
+sp2=sp1;
+sp1=sp0;
+if(fabs(sp1-sp2)<T)
+return y;
+}
+/*
+while(true)//改进割线法求零点
+//for(int i=0;i<100;++i)
+{
+z1=pre(sp1);
+z2=pre(sp2);
+sp0=(sp2*z1-sp1*z2)/(z1-z2);
+z=pre(sp0);
+if(fabs(z)<T)
+return y;
+if(z1*z<0)sp2=sp0;
+else sp1=sp0;
+}
+*/
+return y;
 }
 }
